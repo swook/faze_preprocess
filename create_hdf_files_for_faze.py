@@ -92,12 +92,53 @@ def vector_to_pitchyaw(vectors):
     return out
 
 
-def data_normalization(dataset_path, group):
+def data_normalization(dataset_path, group, output_path):
 
+    # Prepare methods to organize per-entry outputs
+    to_write = {}
+    def add(key, value):  # noqa
+        if key not in to_write:
+            to_write[key] = [value]
+        else:
+            to_write[key].append(value)
+
+    # Iterate through group (person_id)
     num_entries = next(iter(group.values())).shape[0]
-
     for i in range(num_entries):
-        data_normalization_entry(dataset_path, group, i)
+        # Perform data normalization
+        processed_entry = data_normalization_entry(dataset_path, group, i)
+
+        # Gather all of the person's data
+        add('pixels', processed_entry['patch'])
+        add('labels', np.concatenate([
+            processed_entry['normalized_gaze_direction'],
+            processed_entry['normalized_head_pose'],
+        ]))
+
+    if len(to_write) == 0:
+        return
+
+    # Cast to numpy arrays
+    for key, values in to_write.items():
+        to_write[key] = np.asarray(values)
+        print('%s: ' % key, to_write[key].shape)
+
+    # Write to HDF
+    with h5py.File(output_path,
+                   'a' if os.path.isfile(output_path) else 'w') as f:
+        if person_id in f:
+            del f[person_id]
+        group = f.create_group(person_id)
+        for key, values in to_write.items():
+            group.create_dataset(
+                key, data=values,
+                chunks=(
+                    tuple([1] + list(values.shape[1:]))
+                    if isinstance(values, np.ndarray)
+                    else None
+                ),
+                compression='lzf',
+            )
 
 
 def data_normalization_entry(dataset_path, group, i):
@@ -158,6 +199,8 @@ def data_normalization_entry(dataset_path, group, i):
     R = np.asmatrix(R)
 
     # Correct head pose
+    h = np.array([np.arcsin(rotate_mat[1, 2]),
+                  np.arctan2(rotate_mat[0, 2], rotate_mat[2, 2])])
     head_mat = R * rotate_mat
     n_h = np.array([np.arcsin(head_mat[1, 2]),
                     np.arctan2(head_mat[0, 2], head_mat[2, 2])])
@@ -167,23 +210,28 @@ def data_normalization_entry(dataset_path, group, i):
     n_g /= np.linalg.norm(n_g)
     n_g = vector_to_pitchyaw(-n_g.T).flatten()
 
-    to_visualize = cv.equalizeHist(cv.cvtColor(patch, cv.COLOR_RGB2GRAY))
-    to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.24 * oh), n_g,
-                             length=80.0, thickness=1)
-    to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.5 * oh), n_h,
-                             length=80.0, thickness=3, color=(0, 0, 0))
-    to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.5 * oh), n_h,
-                             length=80.0, thickness=1, color=(255, 255, 255))
-    cv.imshow('zhang', to_visualize)
-    cv.waitKey(1)
+    # Basic visualization for debugging purposes
+    if i % 50 == 0:
+        to_visualize = cv.equalizeHist(cv.cvtColor(patch, cv.COLOR_RGB2GRAY))
+        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.25 * oh), n_g,
+                                 length=80.0, thickness=1)
+        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.75 * oh), n_h,
+                                 length=40.0, thickness=3, color=(0, 0, 0))
+        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.75 * oh), n_h,
+                                 length=40.0, thickness=1,
+                                 color=(255, 255, 255))
+        cv.imshow('normalized_patch', to_visualize)
+        cv.waitKey(1)
 
     return {
-        'patch': patch,
-        'head_pose': n_h,
-        'gaze_direction': n_g,
-        'rotation_matrix': np.transpose(R),
-        'gaze_origin': g_o,
-        'gaze_target': g_t,
+        'patch': patch.astype(np.uint8),
+        'gaze_direction': g.astype(np.float32),
+        'gaze_origin': g_o.astype(np.float32),
+        'gaze_target': g_t.astype(np.float32),
+        'head_pose': h.astype(np.float32),
+        'normalization_matrix': np.transpose(R).astype(np.float32),
+        'normalized_gaze_direction': n_g.astype(np.float32),
+        'normalized_head_pose': n_h.astype(np.float32),
     }
 
 
@@ -202,14 +250,18 @@ if __name__ == '__main__':
             'supplementary': './MPIIFaceGaze_supplementary.h5',
             'output-path': output_dir + '/MPIIGaze.h5',
         },
-        # 'GazeCapture': {
-        #     'input-path': '/media/wookie/WookExt4/datasets/GazeCapture',
-        #     'supplementary': './GazeCapture_supplementary.h5',
-        #     'output-path': output_dir + '/GazeCapture.h5',
-        # },
+        'GazeCapture': {
+            'input-path': '/media/wookie/WookExt4/datasets/GazeCapture',
+            'supplementary': './GazeCapture_supplementary.h5',
+            'output-path': output_dir + '/GazeCapture.h5',
+        },
     }
     for dataset_name, dataset_spec in datasets.items():
         # Perform the data normalization
         with h5py.File(dataset_spec['supplementary'], 'r') as f:
             for person_id, group in f.items():
-                data_normalization(dataset_spec['input-path'], group)
+                print('')
+                print('Processing %s/%s' % (dataset_name, person_id))
+                data_normalization(dataset_spec['input-path'],
+                                   group,
+                                   dataset_spec['output-path'])
