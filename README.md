@@ -1,6 +1,10 @@
 # Preprocessing script for Faze
 
-Please cite the following paper when using this pipeline.
+This is a repository for the code used to generate input data for the ICCV 2019 oral paper: *Few-Shot Adaptive Gaze Estimation*. The main code repository can be found at https://github.com/NVlabs/few_shot_gaze
+
+The procedure outlined here is a prerequisite for running the training or evaluation code in the [main repository](https://github.com/NVlabs/few_shot_gaze).
+
+Please cite our paper when using this pipeline in your research works:
 
     @inproceedings{Park2019ICCV,
       author    = {Seonwook Park and Shalini De Mello and Pavlo Molchanov and Umar Iqbal and Otmar Hilliges and Jan Kautz},
