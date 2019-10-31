@@ -54,11 +54,14 @@ class Undistorter:
         all_parameters = np.concatenate([camera_matrix.flatten(),
                                          distortion.flatten(),
                                          [h, w]])
-        if (self._previous_parameters is None or
-                not np.allclose(all_parameters, self._previous_parameters)):
+        if (self._previous_parameters is None
+                or len(self._previous_parameters) != len(all_parameters)
+                or not np.allclose(all_parameters, self._previous_parameters)):
+            print('Distortion map parameters updated.')
             self._map = cv.initUndistortRectifyMap(
                 camera_matrix, distortion, np.eye(3),
                 None, (w, h), cv.CV_32FC1)
+            self._previous_parameters = np.copy(all_parameters)
 
         # Apply
         return cv.remap(image, self._map[0], self._map[1], cv.INTER_LINEAR)
@@ -246,13 +249,29 @@ if __name__ == '__main__':
         os.makedirs(output_dir)
     datasets = {
         'MPIIGaze': {
+            # Path to the MPIIFaceGaze dataset
+            # Sub-folders names should consist of person IDs, for example:
+            # p00, p01, p02, ...
             'input-path': '/media/wookie/WookExt4/datasets/MPIIFaceGaze',
+
+            # A supplementary HDF file with preprocessing data,
+            # as provided by us. See grab_prerequisites.bash
             'supplementary': './MPIIFaceGaze_supplementary.h5',
+
+            # Desired output path for the produced HDF
             'output-path': output_dir + '/MPIIGaze.h5',
         },
         'GazeCapture': {
+            # Path to the GazeCapture dataset
+            # Sub-folders names should consist of person IDs, for example:
+            # 00002, 00028, 00141, ...
             'input-path': '/media/wookie/WookExt4/datasets/GazeCapture',
+
+            # A supplementary HDF file with preprocessing data,
+            # as provided by us. See grab_prerequisites.bash
             'supplementary': './GazeCapture_supplementary.h5',
+
+            # Desired output path for the produced HDF
             'output-path': output_dir + '/GazeCapture.h5',
         },
     }
