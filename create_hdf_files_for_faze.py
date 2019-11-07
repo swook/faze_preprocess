@@ -49,7 +49,7 @@ class Undistorter:
     _map = None
     _previous_parameters = None
 
-    def __call__(self, image, camera_matrix, distortion):
+    def __call__(self, image, camera_matrix, distortion, is_gazecapture=False):
         h, w, _ = image.shape
         all_parameters = np.concatenate([camera_matrix.flatten(),
                                          distortion.flatten(),
@@ -59,8 +59,12 @@ class Undistorter:
                 or not np.allclose(all_parameters, self._previous_parameters)):
             print('Distortion map parameters updated.')
             self._map = cv.initUndistortRectifyMap(
-                camera_matrix, distortion, np.eye(3),
-                None, (w, h), cv.CV_32FC1)
+                camera_matrix, distortion, R=None,
+                newCameraMatrix=camera_matrix if is_gazecapture else None,
+                size=(w, h), m1type=cv.CV_32FC1)
+            print('fx: %.2f, fy: %.2f, cx: %.2f, cy: %.2f' % (
+                    camera_matrix[0, 0], camera_matrix[1, 1],
+                    camera_matrix[0, 2], camera_matrix[1, 2]))
             self._previous_parameters = np.copy(all_parameters)
 
         # Apply
@@ -95,7 +99,7 @@ def vector_to_pitchyaw(vectors):
     return out
 
 
-def data_normalization(dataset_path, group, output_path):
+def data_normalization(dataset_name, dataset_path, group, output_path):
 
     # Prepare methods to organize per-entry outputs
     to_write = {}
@@ -109,7 +113,8 @@ def data_normalization(dataset_path, group, output_path):
     num_entries = next(iter(group.values())).shape[0]
     for i in range(num_entries):
         # Perform data normalization
-        processed_entry = data_normalization_entry(dataset_path, group, i)
+        processed_entry = data_normalization_entry(dataset_name, dataset_path,
+                                                   group, i)
 
         # Gather all of the person's data
         add('pixels', processed_entry['patch'])
@@ -144,7 +149,7 @@ def data_normalization(dataset_path, group, output_path):
             )
 
 
-def data_normalization_entry(dataset_path, group, i):
+def data_normalization_entry(dataset_name, dataset_path, group, i):
 
     # Form original camera matrix
     fx, fy, cx, cy = group['camera_parameters'][i, :]
@@ -156,7 +161,8 @@ def data_normalization_entry(dataset_path, group, i):
                             group['file_name'][i].decode('utf-8'))
     image = cv.imread(image_path, cv.IMREAD_COLOR)
     image = undistort(image, camera_matrix,
-                      group['distortion_parameters'][i, :])
+                      group['distortion_parameters'][i, :],
+                      is_gazecapture=(dataset_name == 'GazeCapture'))
     image = image[:, :, ::-1]  # BGR to RGB
 
     # Calculate rotation matrix and euler angles
@@ -281,6 +287,7 @@ if __name__ == '__main__':
             for person_id, group in f.items():
                 print('')
                 print('Processing %s/%s' % (dataset_name, person_id))
-                data_normalization(dataset_spec['input-path'],
+                data_normalization(dataset_name,
+                                   dataset_spec['input-path'],
                                    group,
                                    dataset_spec['output-path'])
