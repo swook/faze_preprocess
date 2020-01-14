@@ -90,7 +90,7 @@ def draw_gaze(image_in, eye_pos, pitchyaw, length=40.0, thickness=2,
 
 
 def vector_to_pitchyaw(vectors):
-    """Convert given gaze vectors to yaw (theta) and pitch (phi) angles."""
+    """Convert given gaze vectors to pitch (theta) and yaw (phi) angles."""
     n = vectors.shape[0]
     out = np.empty((n, 2))
     vectors = np.divide(vectors, np.linalg.norm(vectors, axis=1).reshape(n, 1))
