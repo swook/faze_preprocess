@@ -1,10 +1,10 @@
-# Preprocessing script for Faze
+# Preprocessing script for Faze (and ST-ED)
 
 This is a repository for the code used to generate input data for the ICCV 2019 oral paper: *Few-Shot Adaptive Gaze Estimation*. The main code repository can be found at https://github.com/NVlabs/few_shot_gaze
 
 The procedure outlined here is a prerequisite for running the training or evaluation code in the [main repository](https://github.com/NVlabs/few_shot_gaze).
 
-Please cite our paper when using this pipeline in your research works:
+Please cite the FAZE paper when using this pipeline in your research to generate eye-strip inputs:
 
     @inproceedings{Park2019ICCV,
       author    = {Seonwook Park and Shalini De Mello and Pavlo Molchanov and Umar Iqbal and Otmar Hilliges and Jan Kautz},
@@ -14,20 +14,29 @@ Please cite our paper when using this pipeline in your research works:
       location  = {Seoul, Korea}
     }
 
+and please consider citing the ST-ED paper as well when using this pipeline to generate 128x128 face images for gaze redirection:
+
+    @inproceedings{Zheng2020NeurIPS,
+      author    = {Yufeng Zheng and Seonwook Park and Xucong Zhang and Shalini De Mello and Otmar Hilliges},
+      title     = {Self-Learning Transformations for Improving Gaze and Head Redirection},
+      year      = {2020},
+      booktitle = {Neural Information Processing Systems (NeurIPS)}
+    }
+
  ## Setup
- 
+
  1. Download all required prerequisite files by running `bash grab_prerequisites.bash`.
  2. Edit the paths defined at the bottom of the main script to point to the actual data paths. More information on where to acquire the original datasets are provided below.
- 2. Run the main script using `python3 create_hdf_files_for_faze.py`
- 
+ 2. Run the main script using `python3 create_hdf_files_for_faze.py` (for generating eye-strips for FAZE) or `python3 create_hdf_files_for_sted.py` (for generating faces for ST-ED).
+
  ## Datasets
- 
+
  ### MPIIFaceGaze
- 
+
  The [MPIIFaceGaze dataset](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/gaze-based-human-computer-interaction/its-written-all-over-your-face-full-face-appearance-based-gaze-estimation/) is a subset of the original [MPIIGaze dataset](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/gaze-based-human-computer-interaction/appearance-based-gaze-estimation-in-the-wild/) which includes a privacy-aware release of face images. This subset was used for evaluations of full-face gaze estimation methods.
- 
+
  When using this dataset, the following works should be cited:
- 
+
     @inproceedings{zhang2017s,
       title={It’s written all over your face: Full-face appearance-based gaze estimation},
       author={Zhang, Xucong and Sugano, Yusuke and Fritz, Mario and Bulling, Andreas},
