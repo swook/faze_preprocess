@@ -23,15 +23,18 @@ SOFTWARE.
 import os
 
 import cv2 as cv
+import eos
 import h5py
 import numpy as np
 
 face_model_3d_coordinates = None
 
-normalized_camera = {
-    'focal_length': 1300,
+full_face_model_3d_coordinates = None
+
+normalized_camera = {  # Face for ST-ED
+    'focal_length': 500,
     'distance': 600,
-    'size': (256, 64),
+    'size': (128, 128),
 }
 
 norm_camera_matrix = np.array(
@@ -90,7 +93,7 @@ def draw_gaze(image_in, eye_pos, pitchyaw, length=40.0, thickness=2,
 
 
 def vector_to_pitchyaw(vectors):
-    """Convert given gaze vectors to pitch (theta) and yaw (phi) angles."""
+    """Convert given gaze vectors to yaw (theta) and pitch (phi) angles."""
     n = vectors.shape[0]
     out = np.empty((n, 2))
     vectors = np.divide(vectors, np.linalg.norm(vectors, axis=1).reshape(n, 1))
@@ -115,12 +118,16 @@ def data_normalization(dataset_name, dataset_path, group, output_path):
         # Perform data normalization
         processed_entry = data_normalization_entry(dataset_name, dataset_path,
                                                    group, i)
+        if processed_entry is None:
+            continue
 
         # Gather all of the person's data
         add('pixels', processed_entry['patch'])
         add('labels', np.concatenate([
             processed_entry['normalized_gaze_direction'],
             processed_entry['normalized_head_pose'],
+            processed_entry['normalized_gaze_direction_left'],
+            processed_entry['normalized_gaze_direction_right'],
         ]))
 
     if len(to_write) == 0:
@@ -157,11 +164,11 @@ def data_normalization_entry(dataset_name, dataset_path, group, i):
                              dtype=np.float64)
 
     # Grab image
+    distortion = group['distortion_parameters'][i, :]
     image_path = '%s/%s' % (dataset_path,
                             group['file_name'][i].decode('utf-8'))
     image = cv.imread(image_path, cv.IMREAD_COLOR)
-    image = undistort(image, camera_matrix,
-                      group['distortion_parameters'][i, :],
+    image = undistort(image, camera_matrix, distortion,
                       is_gazecapture=(dataset_name == 'GazeCapture'))
     image = image[:, :, ::-1]  # BGR to RGB
 
@@ -170,16 +177,41 @@ def data_normalization_entry(dataset_name, dataset_path, group, i):
     tvec = group['head_pose'][i, 3:].reshape(3, 1)
     rotate_mat, _ = cv.Rodrigues(rvec)
 
+    # Project 3D face model points, and check if any are beyond image frame
+    points_2d = cv.projectPoints(full_face_model_3d_coordinates, rvec, tvec,
+                                 camera_matrix, distortion)[0].reshape(-1, 2)
+    ih, iw, _ = image.shape
+    if np.any(points_2d < 0.0) or np.any(points_2d[:, 0] > iw) \
+            or np.any(points_2d[:, 1] > ih):
+        tmp_image = np.copy(image[:, :, ::-1])
+        for x, y in points_2d:
+            cv.drawMarker(tmp_image, (int(x), int(y)), color=[0, 0, 255],
+                          markerType=cv.MARKER_CROSS,
+                          markerSize=2, thickness=1)
+        print('%s skipped. Landmarks outside of frame!' % image_path)
+        cv.imshow('failed', tmp_image)
+        cv.waitKey(1)
+        return
+
     # Take mean face model landmarks and get transformed 3D positions
     landmarks_3d = np.matmul(rotate_mat, face_model_3d_coordinates.T).T
     landmarks_3d += tvec.T
 
     # Gaze-origin (g_o) and target (g_t)
     g_o = np.mean(landmarks_3d[10:12, :], axis=0)  # between 2 eyes
+    g_o = landmarks_3d[-1, :]  # Face
     g_o = g_o.reshape(3, 1)
     g_t = group['3d_gaze_target'][i, :].reshape(3, 1)
     g = g_t - g_o
     g /= np.linalg.norm(g)
+
+    # Gaze origins and vectors for left/right eyes
+    g_l_o = np.mean(landmarks_3d[9:11, :], axis=0).reshape(3, 1)
+    g_r_o = np.mean(landmarks_3d[11:13, :], axis=0).reshape(3, 1)
+    g_l = g_t - g_l_o
+    g_r = g_t - g_r_o
+    g_l /= np.linalg.norm(g_l)
+    g_r /= np.linalg.norm(g_r)
 
     # Code below is an adaptation of code by Xucong Zhang
     # https://www.mpi-inf.mpg.de/departments/computer-vision-and-multimodal-computing/research/gaze-based-human-computer-interaction/revisiting-data-normalization-for-appearance-based-gaze-estimation/
@@ -219,14 +251,26 @@ def data_normalization_entry(dataset_name, dataset_path, group, i):
     n_g /= np.linalg.norm(n_g)
     n_g = vector_to_pitchyaw(-n_g.T).flatten()
 
+    # Gaze for left/right eyes
+    n_g_l = R * g_l
+    n_g_r = R * g_r
+    n_g_l /= np.linalg.norm(n_g_l)
+    n_g_r /= np.linalg.norm(n_g_r)
+    n_g_l = vector_to_pitchyaw(-n_g_l.T).flatten()
+    n_g_r = vector_to_pitchyaw(-n_g_r.T).flatten()
+
     # Basic visualization for debugging purposes
     if i % 50 == 0:
         to_visualize = cv.equalizeHist(cv.cvtColor(patch, cv.COLOR_RGB2GRAY))
-        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.25 * oh), n_g,
+        to_visualize = draw_gaze(to_visualize, (0.25 * ow, 0.3 * oh), n_g_l,
                                  length=80.0, thickness=1)
-        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.75 * oh), n_h,
+        to_visualize = draw_gaze(to_visualize, (0.75 * ow, 0.3 * oh), n_g_r,
+                                 length=80.0, thickness=1)
+        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.3 * oh), n_g,
+                                 length=80.0, thickness=1)
+        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.5 * oh), n_h,
                                  length=40.0, thickness=3, color=(0, 0, 0))
-        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.75 * oh), n_h,
+        to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.5 * oh), n_h,
                                  length=40.0, thickness=1,
                                  color=(255, 255, 255))
         cv.imshow('normalized_patch', to_visualize)
@@ -240,6 +284,8 @@ def data_normalization_entry(dataset_name, dataset_path, group, i):
         'head_pose': h.astype(np.float32),
         'normalization_matrix': np.transpose(R).astype(np.float32),
         'normalized_gaze_direction': n_g.astype(np.float32),
+        'normalized_gaze_direction_left': n_g_l.astype(np.float32),
+        'normalized_gaze_direction_right': n_g_r.astype(np.float32),
         'normalized_head_pose': n_h.astype(np.float32),
     }
 
@@ -249,8 +295,20 @@ if __name__ == '__main__':
     face_model_fpath = './sfm_face_coordinates.npy'
     face_model_3d_coordinates = np.load(face_model_fpath)
 
+    # Grab all face coordinates
+    sfm_model = eos.morphablemodel.load_model('./eos/sfm_shape_3448.bin')
+    shape_model = sfm_model.get_shape_model()
+    sfm_points = np.array([shape_model.get_mean_at_point(d)
+                           for d in range(1, 3448)]).reshape(-1, 3)
+    rotate_mat = np.asarray([[1, 0, 0], [0, -1, 0], [0, 0, -1.0]])
+    sfm_points = np.matmul(sfm_points, rotate_mat)
+    between_eye_point = np.mean([sfm_points[181, :], sfm_points[614, :]],
+                                axis=0)
+    sfm_points -= between_eye_point.reshape(1, 3)
+    full_face_model_3d_coordinates = sfm_points
+
     # Preprocess some datasets
-    output_dir = './outputs_faze/'
+    output_dir = './outputs_sted/'
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
     datasets = {

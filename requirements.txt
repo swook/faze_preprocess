@@ -1,3 +1,4 @@
+eos-py
 h5py
 opencv-python
 numpy
